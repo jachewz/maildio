@@ -1,10 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/gmail/v1.dart' as gMail;
 
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:audioplayers/audioplayers.dart';
 
@@ -16,10 +16,12 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -27,12 +29,14 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: MyHomePage(),
+      home: const MyHomePage(),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
+  const MyHomePage({super.key});
+
   @override
   _MyHomePageState createState() => _MyHomePageState();
 }
@@ -42,15 +46,20 @@ class _MyHomePageState extends State<MyHomePage> {
   List<String> playlist = [];
 
   Future<void> _handleSignIn() async {
+    debugPrint('Sign in with Google');
     try {
       final GoogleSignInAccount? googleUser =
           await GoogleSignInProvider().ensureLoggedInOnStartUp();
       if (googleUser == null) {
         // The user canceled the sign-in
+        debugPrint('Sign in canceled');
         return;
       }
 
-      final authClient = await GoogleAuthClient(await googleUser.authHeaders);
+      debugPrint('User signed in');
+      print(googleUser);
+
+      final authClient = GoogleAuthClient(await googleUser.authHeaders);
       final gmailApi = gMail.GmailApi(authClient);
 
       // Fetch emails
@@ -79,13 +88,13 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Email Playlist App'),
+        title: const Text('Email Playlist App'),
       ),
       body: Column(
         children: [
           ElevatedButton(
             onPressed: _handleSignIn,
-            child: Text('Sign in with Google'),
+            child: const Text('Sign in with Google'),
           ),
           Expanded(
             child: ListView.builder(

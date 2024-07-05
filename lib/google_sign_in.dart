@@ -48,7 +48,7 @@ class GoogleSignInProvider {
       if (googleSignInAccount == null) {
         // but if not, Google should try to sign one in whos previously signed in
         // on this phone.
-        googleSignInAccount = await _googleSignIn.signInSilently();
+        googleSignInAccount = await _googleSignIn.signIn();
         if (googleSignInAccount == null) {
           return null;
         }
@@ -72,7 +72,7 @@ class GoogleSignInProvider {
         assert(!(user.isAnonymous));
         assert(await user.getIdToken() != null);
 
-        final User? currentUser = await _auth.currentUser;
+        final User? currentUser = _auth.currentUser;
 
         if (_auth.currentUser == null) {
           return null;
@@ -93,10 +93,11 @@ class GoogleSignInProvider {
 class GoogleAuthClient extends http.BaseClient {
   final Map<String, String> _headers;
 
-  final http.Client _client = new http.Client();
+  final http.Client _client = http.Client();
 
   GoogleAuthClient(this._headers);
 
+  @override
   Future<http.StreamedResponse> send(http.BaseRequest request) {
     return _client.send(request..headers.addAll(_headers));
   }

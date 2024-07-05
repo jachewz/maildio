@@ -12,7 +12,20 @@
           "package_name": "com.maildio.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "628764696275-2oatimsomkg156mmcpamj5jfaihkegh4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.maildio.app",
+            "certificate_hash": "80c289998ca3c7162c040eef9937a3c9c6095396"
+          }
+        },
+        {
+          "client_id": "628764696275-hhkv0ljkptfc9b31o9nr6oecon5vs9qj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBYfff1W_-9fdxSQPgDc9UE6Guie_EIX1Q"
@@ -20,7 +33,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "628764696275-hhkv0ljkptfc9b31o9nr6oecon5vs9qj.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "628764696275-5miice0jpru3425v6l6i4mhcpvbio8oq.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.flutterApplication1"
+              }
+            }
+          ]
         }
       }
     }

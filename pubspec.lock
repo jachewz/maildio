@@ -242,7 +242,7 @@ packages:
     source: hosted
     version: "5.12.3"
   firebase_core:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: firebase_core
       sha256: "1e06b0538ab3108a61d895ee16951670b491c4a94fce8f2d30e5de7a5eca4b28"
@@ -278,6 +278,14 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  flutter_application_1:
+    dependency: "direct dev"
+    description:
+      name: flutter_application_1
+      sha256: "2a4be8864010740fab7169dff208e09a476937fb4657921c8afeaf8dc411adae"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.0.2"
   flutter_lints:
     dependency: "direct dev"
     description:
