@@ -11,7 +11,7 @@ class GoogleSignInProvider {
     ],
   );
 
-  User get user => _auth.currentUser!;
+  User? get user => _auth.currentUser;
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
   Future<User?> signInWithGoogle() async {
@@ -36,6 +36,7 @@ class GoogleSignInProvider {
   }
 
   Future<void> signOutGoogle() async {
+    await _auth.signOut();
     await _googleSignIn.signOut();
     print("User signed out");
   }
@@ -80,6 +81,8 @@ class GoogleSignInProvider {
 
         assert(user.uid == currentUser?.uid);
 
+        return googleSignInAccount;
+      } else {
         return googleSignInAccount;
       }
     } catch (e) {

@@ -2,12 +2,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'dart:io' show Platform;
 
+import 'package:loading_animation_widget/loading_animation_widget.dart';
+
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/gmail/v1.dart' as gMail;
 
 import 'package:firebase_core/firebase_core.dart';
-
-import 'package:audioplayers/audioplayers.dart';
 
 import 'package:flutter_tts/flutter_tts.dart';
 
@@ -47,8 +47,14 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  // Google Sign In
+  final GoogleSignInProvider _googleSignInProvider = GoogleSignInProvider();
+  bool _loadingSignIn = false;
+  List<String>? _selectedLabelIds;
+  List<gMail.Label> _availableLabels = [];
   List<gMail.Message> playlist = [];
   int currentPlayingMessageIndex = 0;
+  String currentPlayingMessageTitle = '';
 
   // TTS
   late FlutterTts flutterTts;
@@ -172,7 +178,10 @@ class _MyHomePageState extends State<MyHomePage> {
 
       setState(() {
         currentPlayingMessageIndex = index;
+        currentPlayingMessageTitle = getMailTitle(playlist[index]);
       });
+
+      debugPrint('Playing message $index: $currentPlayingMessageTitle');
 
       if (playlist[index].snippet == null) {
         continue;
@@ -183,6 +192,22 @@ class _MyHomePageState extends State<MyHomePage> {
       if (isStopped || isPaused) {
         break;
       }
+    }
+  }
+
+  Future<void> _playNext() async {
+    if (currentPlayingMessageIndex < playlist.length - 1) {
+      _playPlaylist(currentPlayingMessageIndex + 1);
+    } else {
+      _playPlaylist(0);
+    }
+  }
+
+  Future<void> _playPrevious() async {
+    if (currentPlayingMessageIndex > 0) {
+      _playPlaylist(currentPlayingMessageIndex - 1);
+    } else {
+      _playPlaylist(playlist.length - 1);
     }
   }
 
@@ -207,15 +232,17 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   // Sign in with Google
-  Future<void> _handleSignIn() async {
+  void _handleSignIn() async {
     debugPrint('Sign in with Google');
+    setState(() {
+      _loadingSignIn = true;
+    });
     try {
       final GoogleSignInAccount? googleUser =
-          await GoogleSignInProvider().ensureLoggedInOnStartUp();
+          await _googleSignInProvider.ensureLoggedInOnStartUp();
       if (googleUser == null) {
         // The user canceled the sign-in
-        debugPrint('Sign in canceled');
-        return;
+        throw new Exception('User canceled the sign-in');
       }
 
       debugPrint('User signed in');
@@ -224,20 +251,52 @@ class _MyHomePageState extends State<MyHomePage> {
       final authClient = GoogleAuthClient(await googleUser.authHeaders);
       final gmailApi = gMail.GmailApi(authClient);
 
+      // Fetch categories
+      final labels = await gmailApi.users.labels.list('me');
+      _availableLabels = labels.labels ?? [];
+
+      // print available labels
+
+      print('Available labels: $_availableLabels');
+
       // Fetch emails
-      final messages = await gmailApi.users.messages.list('me');
-      if (messages.messages == null) return;
-      debugPrint("number of messages: ${messages.messages!.length}");
-      for (var message in messages.messages!) {
-        final msg = await gmailApi.users.messages
-            .get('me', message.id!, format: 'full');
-        playlist.add(msg);
+      final messages = await gmailApi.users.messages
+          .list('me', labelIds: _selectedLabelIds, maxResults: 10);
+      if (messages.messages != null) {
+        debugPrint("number of messages: ${messages.messages!.length}");
+        for (var message in messages.messages!) {
+          debugPrint(message.id!);
+          final msg = await gmailApi.users.messages
+              .get('me', message.id!, format: 'full');
+          playlist.add(msg);
+        }
+      } else {
+        _clearPlaylist();
+        debugPrint('No messages found');
       }
 
       setState(() {});
     } catch (error) {
       print(error);
     }
+
+    setState(() {
+      _loadingSignIn = false;
+    });
+  }
+
+  void _clearPlaylist() {
+    setState(() {
+      playlist.clear();
+      currentPlayingMessageIndex = 0;
+      currentPlayingMessageTitle = '';
+    });
+  }
+
+  Future<void> _refresh() async {
+    _stop();
+    _clearPlaylist();
+    _handleSignIn();
   }
 
   void _mailSelected(int index) {
@@ -260,32 +319,73 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  Future<void> _signOut() async {
+    await _googleSignInProvider.signOutGoogle();
+    setState(() {
+      _clearPlaylist();
+    });
+  }
+
   // Widgets ---------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Email Playlist App'),
-      ),
-      body: Column(
-        children: [
-          ElevatedButton(
-            onPressed: _handleSignIn,
-            child: const Text('Sign in with Google'),
-          ),
-          Expanded(
-            child: Scrollbar(
-              child: ListView.builder(
-                itemCount: playlist.length,
-                itemBuilder: (context, index) {
-                  return _mailTile(index);
-                },
-              ),
-            ),
-          ),
-          _progressBar(end),
-        ],
+    return SafeArea(
+      child: Scaffold(
+        appBar: _appBar(),
+        drawer: _drawer(),
+        body: Container(
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: _googleSignInProvider.user == null
+                  ? [
+                      ElevatedButton(
+                          onPressed: () {
+                            setState(() {
+                              _loadingSignIn = true;
+                            });
+                            _handleSignIn();
+                            setState(() {});
+                          },
+                          child: const Text('Sign in with Google')),
+                    ]
+                  : _loadingSignIn
+                      ? [
+                          const Text('Loading emails...'),
+                          const Padding(padding: EdgeInsets.all(10)),
+                          LoadingAnimationWidget.beat(
+                            size: 50,
+                            color: Colors.blue,
+                          ),
+                        ]
+                      : playlist.isEmpty
+                          ? [
+                              _refreshingCenter(),
+                            ]
+                          : [
+                              // build if not empty playlist and signed in
+                              Expanded(
+                                child: RefreshIndicator(
+                                  onRefresh: () {
+                                    return _refresh();
+                                  },
+                                  child: Scrollbar(
+                                    child: ListView.builder(
+                                      physics:
+                                          const AlwaysScrollableScrollPhysics(),
+                                      itemCount: playlist.length,
+                                      itemBuilder: (context, index) {
+                                        return _mailTile(index);
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              _controlsBar(),
+                              _progressBar(end),
+                            ],
+            )),
       ),
     );
   }
@@ -308,6 +408,104 @@ class _MyHomePageState extends State<MyHomePage> {
         ));
   }
 
+  PreferredSizeWidget _appBar() {
+    return AppBar(
+      actions: [
+        _labelsBar(),
+      ],
+    );
+  }
+
+  Widget _labelsBar() {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        color: Colors.blue.withOpacity(0.1),
+        child: ListView.builder(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          scrollDirection: Axis.horizontal,
+          itemCount: _availableLabels.length,
+          itemBuilder: (context, index) {
+            return _labelButton(index);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _labelButton(int index) {
+    return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: (_selectedLabelIds != null &&
+                _selectedLabelIds!.contains(_availableLabels[index].id))
+            ? Colors.blue
+            : Colors.white,
+      ),
+      onPressed: () {
+        setState(() {
+          _selectedLabelIds = [_availableLabels[index].id!];
+        });
+        _handleSignIn();
+      },
+      child: Text(_availableLabels[index].name ?? ''),
+    );
+  }
+
+  Widget _refreshingCenter() {
+    return Expanded(
+      child: RefreshIndicator(
+        onRefresh: () {
+          return _refresh();
+        },
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const []),
+            const Padding(
+              padding: EdgeInsets.all(20),
+              child: Text('No emails found', textAlign: TextAlign.center),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _controlsBar() {
+    if (playlist.isEmpty) {
+      return Container();
+    }
+    return Container(
+        color: Colors.blue.withOpacity(0.1),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+                icon: const Icon(Icons.skip_previous_rounded),
+                iconSize: 30,
+                onPressed: () => _playPrevious()),
+            IconButton(
+              icon: (isPlaying)
+                  ? const Icon(Icons.pause_circle_filled)
+                  : const Icon(Icons.play_circle_outline),
+              iconSize: 50,
+              onPressed: () => isPlaying
+                  ? _pause()
+                  : isPaused
+                      ? _continue()
+                      : _playPlaylist(0),
+            ),
+            IconButton(
+              icon: const Icon(Icons.skip_next_rounded),
+              iconSize: 30,
+              onPressed: () => _playNext(),
+            ),
+          ],
+        ));
+  }
+
   Widget _progressBar(int end) {
     if (playlist.isEmpty) {
       return Container();
@@ -315,11 +513,37 @@ class _MyHomePageState extends State<MyHomePage> {
       return Container();
     }
     return Container(
+        color: Colors.blue,
         alignment: Alignment.topCenter,
-        padding: const EdgeInsets.only(top: 25.0, left: 25.0, right: 25.0),
         child: LinearProgressIndicator(
+          valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
           value: end / playlist[currentPlayingMessageIndex].snippet!.length,
         ));
+  }
+
+  Widget? _drawer() {
+    if (_googleSignInProvider.user == null) {
+      return null;
+    } else {
+      return Drawer(
+        child: ListView(
+          children: [
+            UserAccountsDrawerHeader(
+              accountName: Text(_googleSignInProvider.user!.displayName ?? ''),
+              accountEmail: Text(_googleSignInProvider.user!.email ?? ''),
+              currentAccountPicture: CircleAvatar(
+                backgroundImage:
+                    NetworkImage(_googleSignInProvider.user!.photoURL ?? ''),
+              ),
+            ),
+            ListTile(
+              title: const Text('Sign out'),
+              onTap: () => _signOut(),
+            ),
+          ],
+        ),
+      );
+    }
   }
 }
 
