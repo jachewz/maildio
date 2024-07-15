@@ -50,7 +50,7 @@ class _MyHomePageState extends State<MyHomePage> {
   // Google Sign In
   final GoogleSignInProvider _googleSignInProvider = GoogleSignInProvider();
   bool _loadingSignIn = false;
-  List<String>? _selectedLabelIds;
+  List<String>? _selectedLabelIds = ['INBOX'];
   List<gMail.Label> _availableLabels = [];
   List<gMail.Message> playlist = [];
   int currentPlayingMessageIndex = 0;
@@ -257,7 +257,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
       // print available labels
 
-      print('Available labels: $_availableLabels');
+      debugPrint('Available labels: $_availableLabels');
 
       // Fetch emails
       final messages = await gmailApi.users.messages
@@ -317,6 +317,19 @@ class _MyHomePageState extends State<MyHomePage> {
     } else {
       _playPlaylist(index);
     }
+  }
+
+  void _labelSelected(String labelId) {
+    if (_selectedLabelIds != null && _selectedLabelIds!.contains(labelId)) {
+      debugPrint('label id $labelId not found');
+      return;
+    }
+    debugPrint('label id $labelId selected');
+    _pause();
+    setState(() {
+      _selectedLabelIds = [labelId];
+    });
+    _handleSignIn();
   }
 
   Future<void> _signOut() async {
@@ -410,6 +423,8 @@ class _MyHomePageState extends State<MyHomePage> {
 
   PreferredSizeWidget _appBar() {
     return AppBar(
+      title: const Text('Email Playlist App'),
+      backgroundColor: Colors.blue.withOpacity(0.1),
       actions: [
         _labelsBar(),
       ],
@@ -418,16 +433,23 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Widget _labelsBar() {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        color: Colors.blue.withOpacity(0.1),
-        child: ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          scrollDirection: Axis.horizontal,
-          itemCount: _availableLabels.length,
-          itemBuilder: (context, index) {
-            return _labelButton(index);
-          },
+      child: FractionallySizedBox(
+        alignment: Alignment.centerRight,
+        widthFactor: 0.9,
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            scrollDirection: Axis.horizontal,
+            separatorBuilder: (BuildContext context, int index) =>
+                const Padding(
+              padding: EdgeInsets.fromLTRB(3, 0, 3, 0),
+            ),
+            itemCount: _availableLabels.length,
+            itemBuilder: (context, index) {
+              return _labelButton(index);
+            },
+          ),
         ),
       ),
     );
@@ -442,10 +464,7 @@ class _MyHomePageState extends State<MyHomePage> {
             : Colors.white,
       ),
       onPressed: () {
-        setState(() {
-          _selectedLabelIds = [_availableLabels[index].id!];
-        });
-        _handleSignIn();
+        _labelSelected(_availableLabels[index].id ?? '');
       },
       child: Text(_availableLabels[index].name ?? ''),
     );
@@ -511,7 +530,10 @@ class _MyHomePageState extends State<MyHomePage> {
       return Container();
     } else if (playlist[currentPlayingMessageIndex].snippet == null) {
       return Container();
+    } else if (playlist[currentPlayingMessageIndex].snippet!.isEmpty) {
+      return Container();
     }
+
     return Container(
         color: Colors.blue,
         alignment: Alignment.topCenter,
