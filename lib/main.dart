@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'dart:io' show Platform;
 
-import 'package:loading_animation_widget/loading_animation_widget.dart';
+import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/gmail/v1.dart' as gMail;
@@ -12,6 +12,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 import 'google_sign_in.dart';
+import 'mail.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -49,12 +50,13 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   // Google Sign In
   final GoogleSignInProvider _googleSignInProvider = GoogleSignInProvider();
+  late MailProvider _mailProvider;
+
   bool _loadingSignIn = false;
-  List<String>? _selectedLabelIds = ['INBOX'];
+  String _selectedLabel = 'INBOX';
   List<gMail.Label> _availableLabels = [];
   List<gMail.Message> playlist = [];
   int currentPlayingMessageIndex = 0;
-  String currentPlayingMessageTitle = '';
 
   // TTS
   late FlutterTts flutterTts;
@@ -64,11 +66,16 @@ class _MyHomePageState extends State<MyHomePage> {
   double pitch = 1.0;
   double rate = 0.5;
   bool isCurrentLanguageInstalled = false;
-  int end = 0;
+  int ttsProgress = 0;
+  int ttsPausedProgress = 0; // when paused ttsProgress gets wiped, so save it
 
   TtsState ttsState = TtsState.stopped;
 
-  bool get isPlaying => ttsState == TtsState.playing;
+  final PagingController<int, gMail.Message> _pagingController =
+      PagingController(firstPageKey: 0);
+
+  bool get isPlaying =>
+      ttsState == TtsState.playing || ttsState == TtsState.continued;
   bool get isStopped => ttsState == TtsState.stopped;
   bool get isPaused => ttsState == TtsState.paused;
   bool get isContinued => ttsState == TtsState.continued;
@@ -83,12 +90,40 @@ class _MyHomePageState extends State<MyHomePage> {
     super.initState();
     initTts();
     _handleSignIn();
+    _pagingController.addPageRequestListener((pageKey) {
+      _fetchPage(pageKey);
+    });
+  }
+
+  @override
+  void dispose() {
+    _pagingController.dispose();
+    super.dispose();
+    flutterTts.stop();
+  }
+
+  Future<void> _setTtsAwaitOptions() async {
+    await flutterTts.awaitSpeakCompletion(true);
+  }
+
+  Future<void> _getDefaultEngine() async {
+    var engine = await flutterTts.getDefaultEngine;
+    if (engine != null) {
+      // print(engine);
+    }
+  }
+
+  Future<void> _getDefaultVoice() async {
+    var voice = await flutterTts.getDefaultVoice;
+    if (voice != null) {
+      // print(voice);
+    }
   }
 
   dynamic initTts() {
     flutterTts = FlutterTts();
 
-    _setAwaitOptions();
+    _setTtsAwaitOptions();
 
     if (isAndroid) {
       _getDefaultEngine();
@@ -97,15 +132,14 @@ class _MyHomePageState extends State<MyHomePage> {
 
     flutterTts.setStartHandler(() {
       setState(() {
-        print("Playing");
+        ttsPausedProgress = 0;
         ttsState = TtsState.playing;
       });
     });
 
     flutterTts.setCompletionHandler(() {
       setState(() {
-        print("Complete");
-        ttsState = TtsState.stopped;
+        _playNext();
       });
     });
 
@@ -120,6 +154,7 @@ class _MyHomePageState extends State<MyHomePage> {
       setState(() {
         print("Paused");
         ttsState = TtsState.paused;
+        ttsPausedProgress += ttsProgress;
       });
     });
 
@@ -140,66 +175,50 @@ class _MyHomePageState extends State<MyHomePage> {
     flutterTts.setProgressHandler(
         (String text, int startOffset, int endOffset, String word) {
       setState(() {
-        end = endOffset;
+        ttsProgress = endOffset;
       });
     });
   }
 
-  Future<dynamic> _getLanguages() async => await flutterTts.getLanguages;
+  Future<void> _playPlaylist(int index) async {
+    await flutterTts.setVolume(volume);
+    await flutterTts.setSpeechRate(rate);
+    await flutterTts.setPitch(pitch);
+    setState(() {
+      currentPlayingMessageIndex = index;
+    });
 
-  Future<dynamic> _getEngines() async => await flutterTts.getEngines;
+    debugPrint(
+        'Playing message $index: $_mailProvider.getMailTitle(playlist[index])');
 
-  Future<void> _getDefaultEngine() async {
-    var engine = await flutterTts.getDefaultEngine;
-    if (engine != null) {
-      print(engine);
+    if (playlist[index].snippet == null) {
+      return;
     }
-  }
 
-  Future<void> _getDefaultVoice() async {
-    var voice = await flutterTts.getDefaultVoice;
-    if (voice != null) {
-      print(voice);
-    }
+    flutterTts.speak(playlist[index].snippet!);
   }
 
   Future<void> _continue() async {
     _playPlaylist(currentPlayingMessageIndex);
   }
 
-  Future<void> _playPlaylist(int playlistIndex) async {
-    await flutterTts.setVolume(volume);
-    await flutterTts.setSpeechRate(rate);
-    await flutterTts.setPitch(pitch);
+  Future<void> _startPlaying() async {
+    _playPlaylist(0);
+  }
 
-    for (var i = playlistIndex; i < playlistIndex + playlist.length; i++) {
-      // if overflow, start from the beginning till everything is read
-      int index = (i < playlist.length) ? i : (i - playlist.length);
-
-      setState(() {
-        currentPlayingMessageIndex = index;
-        currentPlayingMessageTitle = getMailTitle(playlist[index]);
-      });
-
-      debugPrint('Playing message $index: $currentPlayingMessageTitle');
-
-      if (playlist[index].snippet == null) {
-        continue;
-      }
-
-      await flutterTts.speak(playlist[index].snippet!);
-
-      if (isStopped || isPaused) {
-        break;
-      }
-    }
+  Future<void> _playButtonSelected() async {
+    isPlaying
+        ? _pause()
+        : isPaused
+            ? _continue()
+            : _startPlaying();
   }
 
   Future<void> _playNext() async {
     if (currentPlayingMessageIndex < playlist.length - 1) {
       _playPlaylist(currentPlayingMessageIndex + 1);
     } else {
-      _playPlaylist(0);
+      return;
     }
   }
 
@@ -207,12 +226,8 @@ class _MyHomePageState extends State<MyHomePage> {
     if (currentPlayingMessageIndex > 0) {
       _playPlaylist(currentPlayingMessageIndex - 1);
     } else {
-      _playPlaylist(playlist.length - 1);
+      return;
     }
-  }
-
-  Future<void> _setAwaitOptions() async {
-    await flutterTts.awaitSpeakCompletion(true);
   }
 
   Future<void> _stop() async {
@@ -225,18 +240,14 @@ class _MyHomePageState extends State<MyHomePage> {
     if (result == 1) setState(() => ttsState = TtsState.paused);
   }
 
-  @override
-  void dispose() {
-    super.dispose();
-    flutterTts.stop();
-  }
-
   // Sign in with Google
   void _handleSignIn() async {
     debugPrint('Sign in with Google');
+
     setState(() {
       _loadingSignIn = true;
     });
+
     try {
       final GoogleSignInAccount? googleUser =
           await _googleSignInProvider.ensureLoggedInOnStartUp();
@@ -251,29 +262,11 @@ class _MyHomePageState extends State<MyHomePage> {
       final authClient = GoogleAuthClient(await googleUser.authHeaders);
       final gmailApi = gMail.GmailApi(authClient);
 
-      // Fetch categories
-      final labels = await gmailApi.users.labels.list('me');
-      _availableLabels = labels.labels ?? [];
+      _mailProvider = MailProvider(gmailApi);
 
-      // print available labels
-
-      debugPrint('Available labels: $_availableLabels');
-
-      // Fetch emails
-      final messages = await gmailApi.users.messages
-          .list('me', labelIds: _selectedLabelIds, maxResults: 10);
-      if (messages.messages != null) {
-        debugPrint("number of messages: ${messages.messages!.length}");
-        for (var message in messages.messages!) {
-          debugPrint(message.id!);
-          final msg = await gmailApi.users.messages
-              .get('me', message.id!, format: 'full');
-          playlist.add(msg);
-        }
-      } else {
-        _clearPlaylist();
-        debugPrint('No messages found');
-      }
+      // after signing in, handle the new labels and mail
+      _availableLabels = await _mailProvider.getLabels();
+      debugPrint(_availableLabels[0].name);
 
       setState(() {});
     } catch (error) {
@@ -289,20 +282,22 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {
       playlist.clear();
       currentPlayingMessageIndex = 0;
-      currentPlayingMessageTitle = '';
     });
   }
 
   Future<void> _refresh() async {
-    _stop();
-    _clearPlaylist();
-    _handleSignIn();
+    _pagingController.refresh();
   }
 
-  void _mailSelected(int index) {
+  void _mailSelected(gMail.Message message) {
+    // get the index of the selected message
+    int index =
+        playlist.indexWhere((element) => element.hashCode == message.hashCode);
+
     if (isPlaying) {
       if (currentPlayingMessageIndex == index) {
         // ignore if the same message is selected
+        return;
       } else {
         _stop();
         _playPlaylist(index);
@@ -320,16 +315,12 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _labelSelected(String labelId) {
-    if (_selectedLabelIds != null && _selectedLabelIds!.contains(labelId)) {
-      debugPrint('label id $labelId not found');
-      return;
-    }
     debugPrint('label id $labelId selected');
-    _pause();
+    _stop();
     setState(() {
-      _selectedLabelIds = [labelId];
+      _selectedLabel = labelId;
     });
-    _handleSignIn();
+    _pagingController.refresh();
   }
 
   Future<void> _signOut() async {
@@ -337,6 +328,38 @@ class _MyHomePageState extends State<MyHomePage> {
     setState(() {
       _clearPlaylist();
     });
+  }
+
+  void _addMessagesToPlaylist(List<gMail.Message> messages) {
+    setState(() {
+      // add unique messages to the playlist by looking at the hashcode
+      for (var message in messages) {
+        if (!playlist.any((element) => element.hashCode == message.hashCode)) {
+          playlist.add(message);
+        }
+      }
+    });
+  }
+
+  Future<void> _fetchPage(int pageKey) async {
+    try {
+      final newItems =
+          await _mailProvider.getMessagesByLabel(_selectedLabel, pageKey);
+
+      if (_mailProvider.hasNextPage(pageKey) && newItems.isNotEmpty) {
+        final nextPageKey = pageKey + 1;
+        _pagingController.appendPage(newItems, nextPageKey);
+      } else {
+        _pagingController.appendLastPage(newItems);
+      }
+
+      _addMessagesToPlaylist(newItems);
+      // for (var message in playlist) {
+      //   debugPrint('Message: ${_mailProvider.getMailTitle(message)}');
+      // }
+    } catch (error) {
+      _pagingController.error = error;
+    }
   }
 
   // Widgets ---------------------------------------------------------------
@@ -363,62 +386,53 @@ class _MyHomePageState extends State<MyHomePage> {
                           },
                           child: const Text('Sign in with Google')),
                     ]
-                  : _loadingSignIn
-                      ? [
-                          const Text('Loading emails...'),
-                          const Padding(padding: EdgeInsets.all(10)),
-                          LoadingAnimationWidget.beat(
-                            size: 50,
-                            color: Colors.blue,
-                          ),
-                        ]
-                      : playlist.isEmpty
-                          ? [
-                              _refreshingCenter(),
-                            ]
-                          : [
-                              // build if not empty playlist and signed in
-                              Expanded(
-                                child: RefreshIndicator(
-                                  onRefresh: () {
-                                    return _refresh();
-                                  },
-                                  child: Scrollbar(
-                                    child: ListView.builder(
-                                      physics:
-                                          const AlwaysScrollableScrollPhysics(),
-                                      itemCount: playlist.length,
-                                      itemBuilder: (context, index) {
-                                        return _mailTile(index);
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              _controlsBar(),
-                              _progressBar(end),
-                            ],
+                  : [
+                      // build if not empty playlist and signed in
+                      Expanded(
+                        child: _mailList(),
+                      ),
+                      _controlsBar(),
+                      _progressBar(ttsPausedProgress + ttsProgress),
+                    ],
             )),
       ),
     );
   }
 
-  Widget _mailTile(int index) {
-    return ListTile(
-        title: Text(
-          getMailTitle(playlist[index]),
-          style: TextStyle(
-              fontSize: 18.0,
-              color: ((isPlaying && (index == currentPlayingMessageIndex))
-                  ? Colors.blue
-                  : Colors.black)),
+  Widget _mailList() {
+    return RefreshIndicator(
+      onRefresh: () {
+        return _refresh();
+      },
+      child: PagedListView<int, gMail.Message>(
+        pagingController: _pagingController,
+        builderDelegate: PagedChildBuilderDelegate<gMail.Message>(
+          itemBuilder: (context, item, index) {
+            return _mailTile(item);
+          },
         ),
-        subtitle: Text(playlist[index].snippet ?? ''),
-        // trailing: _playPauseButton(index),
-        onTap: () => _mailSelected(index), // Placeholder: use real URLs
-        shape: const Border(
-          bottom: BorderSide(color: Colors.grey),
-        ));
+      ),
+    );
+  }
+
+  Widget _mailTile(gMail.Message message) {
+    return ListTile(
+      title: Text(
+        _mailProvider.getMailTitle(message),
+        style: TextStyle(
+            fontSize: 18.0,
+            color: ((isPlaying &&
+                    (message.id == playlist[currentPlayingMessageIndex].id))
+                ? Colors.blue
+                : Colors.black)),
+      ),
+      subtitle: Text(message.snippet ?? ''),
+      // trailing: _playPauseButton(index),
+      onTap: () => _mailSelected(message), // Placeholder
+      shape: const Border(
+        bottom: BorderSide(color: Colors.grey),
+      ),
+    );
   }
 
   PreferredSizeWidget _appBar() {
@@ -458,9 +472,8 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget _labelButton(int index) {
     return ElevatedButton(
       style: ElevatedButton.styleFrom(
-        backgroundColor: (_selectedLabelIds != null &&
-                _selectedLabelIds!.contains(_availableLabels[index].id))
-            ? Colors.blue
+        backgroundColor: (_selectedLabel == _availableLabels[index].id)
+            ? Colors.blue // highlight selected label
             : Colors.white,
       ),
       onPressed: () {
@@ -470,32 +483,7 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  Widget _refreshingCenter() {
-    return Expanded(
-      child: RefreshIndicator(
-        onRefresh: () {
-          return _refresh();
-        },
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: const []),
-            const Padding(
-              padding: EdgeInsets.all(20),
-              child: Text('No emails found', textAlign: TextAlign.center),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _controlsBar() {
-    if (playlist.isEmpty) {
-      return Container();
-    }
     return Container(
         color: Colors.blue.withOpacity(0.1),
         child: Row(
@@ -506,16 +494,11 @@ class _MyHomePageState extends State<MyHomePage> {
                 iconSize: 30,
                 onPressed: () => _playPrevious()),
             IconButton(
-              icon: (isPlaying)
-                  ? const Icon(Icons.pause_circle_filled)
-                  : const Icon(Icons.play_circle_outline),
-              iconSize: 50,
-              onPressed: () => isPlaying
-                  ? _pause()
-                  : isPaused
-                      ? _continue()
-                      : _playPlaylist(0),
-            ),
+                icon: (isPlaying)
+                    ? const Icon(Icons.pause_circle_filled)
+                    : const Icon(Icons.play_circle_outline),
+                iconSize: 50,
+                onPressed: () => _playButtonSelected()),
             IconButton(
               icon: const Icon(Icons.skip_next_rounded),
               iconSize: 30,
@@ -525,13 +508,16 @@ class _MyHomePageState extends State<MyHomePage> {
         ));
   }
 
-  Widget _progressBar(int end) {
-    if (playlist.isEmpty) {
-      return Container();
-    } else if (playlist[currentPlayingMessageIndex].snippet == null) {
-      return Container();
-    } else if (playlist[currentPlayingMessageIndex].snippet!.isEmpty) {
-      return Container();
+  Widget _progressBar(int progress) {
+    if (playlist.isEmpty ||
+        playlist[currentPlayingMessageIndex].snippet == null ||
+        playlist[currentPlayingMessageIndex].snippet!.isEmpty) {
+      return Container(
+        alignment: Alignment.topCenter,
+        child: const LinearProgressIndicator(
+          value: 0,
+        ),
+      );
     }
 
     return Container(
@@ -539,7 +525,8 @@ class _MyHomePageState extends State<MyHomePage> {
         alignment: Alignment.topCenter,
         child: LinearProgressIndicator(
           valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
-          value: end / playlist[currentPlayingMessageIndex].snippet!.length,
+          value:
+              progress / playlist[currentPlayingMessageIndex].snippet!.length,
         ));
   }
 
@@ -567,17 +554,4 @@ class _MyHomePageState extends State<MyHomePage> {
       );
     }
   }
-}
-
-// Helper functions --------------------------------------------------------
-String getMailTitle(gMail.Message message) {
-  final headers = message.payload?.headers;
-  if (headers == null) {
-    return 'No title';
-  }
-  final subject = headers.firstWhere(
-    (header) => header.name == 'Subject',
-    orElse: () => gMail.MessagePartHeader(name: 'Subject', value: 'No title'),
-  );
-  return subject.value ?? 'No title';
 }
