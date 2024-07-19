@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'dart:io' show Platform;
+import 'package:html/parser.dart';
 
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
@@ -188,14 +189,24 @@ class _MyHomePageState extends State<MyHomePage> {
       currentPlayingMessageIndex = index;
     });
 
-    debugPrint(
-        'Playing message $index: $_mailProvider.getMailTitle(playlist[index])');
+    String textToBeSpoken =
+        '\nTitle: ${_mailProvider.getMailTitle(playlist[index])}';
 
-    if (playlist[index].snippet == null) {
-      return;
+    // read out sender
+    final String sender = _mailProvider.getMailSender(playlist[index]);
+    textToBeSpoken = '$textToBeSpoken \n Sent by: $sender';
+
+    // read out body
+    final String body = _mailProvider.getMailBody(playlist[index]);
+    textToBeSpoken = '$textToBeSpoken \n Body: $body';
+
+    if (index + 1 < playlist.length) {
+      // if next message exists, say this before next message
+      textToBeSpoken += '\n Next message: \n';
     }
 
-    flutterTts.speak(playlist[index].snippet!);
+    debugPrint(textToBeSpoken);
+    flutterTts.speak(textToBeSpoken);
   }
 
   Future<void> _continue() async {
@@ -253,7 +264,7 @@ class _MyHomePageState extends State<MyHomePage> {
           await _googleSignInProvider.ensureLoggedInOnStartUp();
       if (googleUser == null) {
         // The user canceled the sign-in
-        throw new Exception('User canceled the sign-in');
+        throw Exception('User canceled the sign-in');
       }
 
       debugPrint('User signed in');
@@ -358,6 +369,7 @@ class _MyHomePageState extends State<MyHomePage> {
       //   debugPrint('Message: ${_mailProvider.getMailTitle(message)}');
       // }
     } catch (error) {
+      debugPrint('Error while fetching page: $error');
       _pagingController.error = error;
     }
   }
@@ -422,11 +434,12 @@ class _MyHomePageState extends State<MyHomePage> {
         style: TextStyle(
             fontSize: 18.0,
             color: ((isPlaying &&
-                    (message.id == playlist[currentPlayingMessageIndex].id))
+                    (message.hashCode ==
+                        playlist[currentPlayingMessageIndex].hashCode))
                 ? Colors.blue
                 : Colors.black)),
       ),
-      subtitle: Text(message.snippet ?? ''),
+      subtitle: Text(parseFragment(message.snippet ?? '').text ?? ''),
       // trailing: _playPauseButton(index),
       onTap: () => _mailSelected(message), // Placeholder
       shape: const Border(

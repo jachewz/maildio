@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:googleapis/gmail/v1.dart' as gMail;
 
 class MailProvider {
@@ -74,5 +75,65 @@ class MailProvider {
       orElse: () => gMail.MessagePartHeader(name: 'Subject', value: 'No title'),
     );
     return subject.value ?? 'No title';
+  }
+
+  String getMailSender(gMail.Message message) {
+    final headers = message.payload?.headers;
+    if (headers == null) {
+      return 'No sender';
+    }
+    final from = headers.firstWhere(
+      (header) => header.name == 'From',
+      orElse: () => gMail.MessagePartHeader(name: 'From', value: 'No sender'),
+    );
+    return from.value ?? 'No sender';
+  }
+
+  String getMailDate(gMail.Message message) {
+    final headers = message.payload?.headers;
+    if (headers == null) {
+      return 'No date';
+    }
+    final date = headers.firstWhere(
+      (header) => header.name == 'Date',
+      orElse: () => gMail.MessagePartHeader(name: 'Date', value: 'No date'),
+    );
+    return date.value ?? 'No date';
+  }
+
+  String getMailBody(gMail.Message message) {
+    final parts = message.payload?.parts;
+    if (parts == null) {
+      return 'No body';
+    }
+    final body = parts.firstWhere(
+      (part) => part.mimeType == 'text/plain',
+      orElse: () => gMail.MessagePart(
+          mimeType: 'text/plain', body: gMail.MessagePartBody(data: '')),
+    );
+
+    if (body.body?.data == null) {
+      return 'No body';
+    }
+
+    // decode the body
+    String decoded = utf8.decode(base64.decode(body.body!.data!));
+    return _cleanMailBody(decoded);
+  }
+
+  String _cleanMailBody(String body) {
+    // remove urls
+    body = body.replaceAll(RegExp(r'http(s)?://[^\s]*'), '');
+    // remove html tags
+    body.replaceAll(RegExp(r'<[^>]*>'), '');
+    // remove media blocks
+    body = body.replaceAll(
+        RegExp(r'@media[^{]*{([^{}]*{[^{}]*})*[^{}]*}', dotAll: true), '');
+    // remove empty parentheses
+    body = body.replaceAll(RegExp(r'\([\s]*\)'), '');
+    // join lines with single line break
+    body = body.replaceAll(RegExp(r'\n(?!\n)'), ' ');
+
+    return body;
   }
 }
