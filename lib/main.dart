@@ -146,14 +146,12 @@ class _MyHomePageState extends State<MyHomePage> {
 
     flutterTts.setCancelHandler(() {
       setState(() {
-        print("Cancel");
         ttsState = TtsState.stopped;
       });
     });
 
     flutterTts.setPauseHandler(() {
       setState(() {
-        print("Paused");
         ttsState = TtsState.paused;
         ttsPausedProgress += ttsProgress;
       });
@@ -161,14 +159,13 @@ class _MyHomePageState extends State<MyHomePage> {
 
     flutterTts.setContinueHandler(() {
       setState(() {
-        print("Continued");
         ttsState = TtsState.continued;
       });
     });
 
     flutterTts.setErrorHandler((msg) {
       setState(() {
-        print("error: $msg");
+        debugPrint("error: $msg");
         ttsState = TtsState.stopped;
       });
     });
@@ -226,18 +223,20 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _playNext() async {
+    _stop();
     if (currentPlayingMessageIndex < playlist.length - 1) {
       _playPlaylist(currentPlayingMessageIndex + 1);
     } else {
-      return;
+      _playPlaylist(playlist.length - 1);
     }
   }
 
   Future<void> _playPrevious() async {
+    _stop();
     if (currentPlayingMessageIndex > 0) {
       _playPlaylist(currentPlayingMessageIndex - 1);
     } else {
-      return;
+      _playPlaylist(0);
     }
   }
 
@@ -267,8 +266,7 @@ class _MyHomePageState extends State<MyHomePage> {
         throw Exception('User canceled the sign-in');
       }
 
-      debugPrint('User signed in');
-      print(googleUser);
+      debugPrint('User signed in $googleUser');
 
       final authClient = GoogleAuthClient(await googleUser.authHeaders);
       final gmailApi = gMail.GmailApi(authClient);
@@ -281,7 +279,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
       setState(() {});
     } catch (error) {
-      print(error);
+      debugPrint('Sign in error: $error');
     }
 
     setState(() {
