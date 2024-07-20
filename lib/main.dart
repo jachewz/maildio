@@ -88,9 +88,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   initState() {
+    _handleSignIn().then((_) => _pagingController.refresh());
     super.initState();
     initTts();
-    _handleSignIn();
     _pagingController.addPageRequestListener((pageKey) {
       _fetchPage(pageKey);
     });
@@ -251,7 +251,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   // Sign in with Google
-  void _handleSignIn() async {
+  Future _handleSignIn() async {
     debugPrint('Sign in with Google');
 
     setState(() {
