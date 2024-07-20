@@ -304,21 +304,7 @@ class _MyHomePageState extends State<MyHomePage> {
         playlist.indexWhere((element) => element.hashCode == message.hashCode);
 
     if (isPlaying) {
-      if (currentPlayingMessageIndex == index) {
-        // ignore if the same message is selected
-        return;
-      } else {
         _stop();
-        _playPlaylist(index);
-      }
-    } else if (isPaused) {
-      if (currentPlayingMessageIndex == index) {
-        _continue();
-      } else {
-        _stop();
-        _playPlaylist(index);
-      }
-    } else {
       _playPlaylist(index);
     }
   }
