@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:googleapis/drive/v2.dart';
 import 'package:googleapis/gmail/v1.dart' as gMail;
 
 class MailProvider {
@@ -14,7 +15,30 @@ class MailProvider {
     if (response.labels == null) {
       return [];
     }
-    return response.labels!;
+
+    var labels = parseLabels(response.labels!);
+
+    return labels;
+  }
+
+  List<gMail.Label> parseLabels(List<gMail.Label> labels) {
+    // sort labels by name, with INBOX first
+    labels.sort((a, b) {
+      if (a.name == 'INBOX') {
+        return -1;
+      } else if (b.name == 'INBOX') {
+        return 1;
+      } else {
+        return a.name!.compareTo(b.name!);
+      }
+    });
+    // cut the CATEGORY_ prefix from label strings
+    for (var label in labels) {
+      if (label.name!.startsWith('CATEGORY_')) {
+        label.name = label.name!.substring('CATEGORY_'.length);
+      }
+    }
+    return labels;
   }
 
   // Fetch messages by category

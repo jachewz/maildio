@@ -275,9 +275,8 @@ class _MyHomePageState extends State<MyHomePage> {
 
       // after signing in, handle the new labels and mail
       _availableLabels = await _mailProvider.getLabels();
-      debugPrint(_availableLabels[0].name);
 
-      setState(() {});
+      // debugPrint(_availableLabels[0].name);
     } catch (error) {
       debugPrint('Sign in error: $error');
     }
@@ -304,7 +303,7 @@ class _MyHomePageState extends State<MyHomePage> {
         playlist.indexWhere((element) => element.hashCode == message.hashCode);
 
     if (isPlaying) {
-        _stop();
+      _stop();
       _playPlaylist(index);
     }
   }
