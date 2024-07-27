@@ -12,8 +12,11 @@ import 'package:firebase_core/firebase_core.dart';
 
 import 'package:flutter_tts/flutter_tts.dart';
 
+import 'package:audio_service/audio_service.dart';
+
 import 'google_sign_in.dart';
 import 'mail.dart';
+import 'text_player_handler.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -59,133 +62,48 @@ class _MyHomePageState extends State<MyHomePage> {
   List<gMail.Message> playlist = [];
   int currentPlayingMessageIndex = 0;
 
-  // TTS
-  late FlutterTts flutterTts;
-  String? language;
-  String? engine;
-  double volume = 0.5;
-  double pitch = 1.0;
-  double rate = 0.5;
-  bool isCurrentLanguageInstalled = false;
-  int ttsProgress = 0;
-  int ttsPausedProgress = 0; // when paused ttsProgress gets wiped, so save it
-
-  TtsState ttsState = TtsState.stopped;
+  // Audio Service
+  late TextPlayerHandler _audioHandler;
 
   final PagingController<int, gMail.Message> _pagingController =
       PagingController(firstPageKey: 0);
-
-  bool get isPlaying =>
-      ttsState == TtsState.playing || ttsState == TtsState.continued;
-  bool get isStopped => ttsState == TtsState.stopped;
-  bool get isPaused => ttsState == TtsState.paused;
-  bool get isContinued => ttsState == TtsState.continued;
-
-  bool get isIOS => !kIsWeb && Platform.isIOS;
-  bool get isAndroid => !kIsWeb && Platform.isAndroid;
-  bool get isWindows => !kIsWeb && Platform.isWindows;
-  bool get isWeb => kIsWeb;
 
   @override
   initState() {
     _handleSignIn().then((_) => _pagingController.refresh());
     super.initState();
-    initTts();
+    _initAudioHandler();
     _pagingController.addPageRequestListener((pageKey) {
       _fetchPage(pageKey);
     });
+  }
+
+  void _initAudioHandler() async {
+    _audioHandler = await AudioService.init(
+      builder: () => TextPlayerHandler(),
+      config: const AudioServiceConfig(
+        androidNotificationChannelName: 'Maildio Audio Playback',
+        androidNotificationOngoing: true,
+      ),
+    );
   }
 
   @override
   void dispose() {
     _pagingController.dispose();
     super.dispose();
-    flutterTts.stop();
-  }
-
-  Future<void> _setTtsAwaitOptions() async {
-    await flutterTts.awaitSpeakCompletion(true);
-  }
-
-  Future<void> _getDefaultEngine() async {
-    var engine = await flutterTts.getDefaultEngine;
-    if (engine != null) {
-      // print(engine);
-    }
-  }
-
-  Future<void> _getDefaultVoice() async {
-    var voice = await flutterTts.getDefaultVoice;
-    if (voice != null) {
-      // print(voice);
-    }
-  }
-
-  dynamic initTts() {
-    flutterTts = FlutterTts();
-
-    _setTtsAwaitOptions();
-
-    if (isAndroid) {
-      _getDefaultEngine();
-      _getDefaultVoice();
-    }
-
-    flutterTts.setStartHandler(() {
-      setState(() {
-        ttsPausedProgress = 0;
-        ttsState = TtsState.playing;
-      });
-    });
-
-    flutterTts.setCompletionHandler(() {
-      setState(() {
-        _playNext();
-      });
-    });
-
-    flutterTts.setCancelHandler(() {
-      setState(() {
-        ttsState = TtsState.stopped;
-      });
-    });
-
-    flutterTts.setPauseHandler(() {
-      setState(() {
-        ttsState = TtsState.paused;
-        ttsPausedProgress += ttsProgress;
-      });
-    });
-
-    flutterTts.setContinueHandler(() {
-      setState(() {
-        ttsState = TtsState.continued;
-      });
-    });
-
-    flutterTts.setErrorHandler((msg) {
-      setState(() {
-        debugPrint("error: $msg");
-        ttsState = TtsState.stopped;
-      });
-    });
-
-    flutterTts.setProgressHandler(
-        (String text, int startOffset, int endOffset, String word) {
-      setState(() {
-        ttsProgress = endOffset;
-      });
-    });
   }
 
   Future<void> _playPlaylist(int index) async {
-    await flutterTts.setVolume(volume);
-    await flutterTts.setSpeechRate(rate);
-    await flutterTts.setPitch(pitch);
     setState(() {
       currentPlayingMessageIndex = index;
     });
 
+    debugPrint(textToBeSpoken);
+    flutterTts.speak(textToBeSpoken);
+  }
+
+  MediaItem _mailToMediaItem(gMail.Message message) {
     String textToBeSpoken =
         '\nTitle: ${_mailProvider.getMailTitle(playlist[index])}';
 
@@ -197,13 +115,14 @@ class _MyHomePageState extends State<MyHomePage> {
     final String body = _mailProvider.getMailBody(playlist[index]);
     textToBeSpoken = '$textToBeSpoken \n Body: $body';
 
-    if (index + 1 < playlist.length) {
-      // if next message exists, say this before next message
-      textToBeSpoken += '\n Next message: \n';
-    }
-
-    debugPrint(textToBeSpoken);
-    flutterTts.speak(textToBeSpoken);
+    return MediaItem(
+      id: message.id ?? '',
+      album: _mailProvider.getMailTitle(message),
+      title: _mailProvider.getMailSender(message),
+      artist: _mailProvider.getMailBody(message),
+      extras: <String, String>{'text': textToBeSpoken},
+      duration: Duration(seconds: 1),
+    );
   }
 
   Future<void> _continue() async {
